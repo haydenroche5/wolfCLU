@@ -54,7 +54,7 @@ int wolfCLU_certSetup(int argc, char** argv)
     byte printSubjHash = 0;
 
     WOLFSSL_BIO* in  = NULL;
-    WOLFSSL_BIO* in_mem = NULL;
+    WOLFSSL_BIO* inMem = NULL;
     WOLFSSL_BIO* out = NULL;
     WOLFSSL_X509* x509 = NULL;
 
@@ -205,18 +205,18 @@ int wolfCLU_certSetup(int argc, char** argv)
     if (ret == WOLFCLU_SUCCESS) {
         char read;
 
-        in_mem = wolfSSL_BIO_new(wolfSSL_BIO_s_mem());
+        inMem = wolfSSL_BIO_new(wolfSSL_BIO_s_mem());
         while (wolfSSL_BIO_read(in, &read, 1) == 1) {
-             wolfSSL_BIO_write(in_mem, &read, 1);
+             wolfSSL_BIO_write(inMem, &read, 1);
         }
     }
 
-    if (ret == WOLFCLU_SUCCESS) {
+    if (ret == WOLFCLU_SUCCESS && inForm != outForm) {
         if (inForm == PEM_FORM) {
-            x509 = wolfSSL_PEM_read_bio_X509(in_mem, NULL, NULL, NULL);
+            x509 = wolfSSL_PEM_read_bio_X509(inMem, NULL, NULL, NULL);
         }
         else if (inForm == DER_FORM) {
-            x509 = wolfSSL_d2i_X509_bio(in_mem, NULL);
+            x509 = wolfSSL_d2i_X509_bio(inMem, NULL);
         }
 
         if (x509 == NULL) {
@@ -227,7 +227,13 @@ int wolfCLU_certSetup(int argc, char** argv)
 
     /* done with input file */
     wolfSSL_BIO_free(in);
-    wolfSSL_BIO_free(in_mem);
+    /*
+     * If we're "converting" from PEM to PEM or DER to DER, we want to keep the
+     * input buffer around for copying to the output later.
+     */
+    if (inForm != outForm) {
+        wolfSSL_BIO_free(inMem);
+    }
 
     /* try to open output file if set */
     if (ret == WOLFCLU_SUCCESS && outFile != NULL) {
@@ -529,7 +535,14 @@ int wolfCLU_certSetup(int argc, char** argv)
 
     /* write out certificate */
     if (ret == WOLFCLU_SUCCESS && !nooutFlag) {
-        if (outForm == PEM_FORM) {
+        if (outForm == inForm) {
+            char read;
+
+            while (wolfSSL_BIO_read(inMem, &read, 1) == 1) {
+                wolfSSL_BIO_write(out, &read, 1);
+            }
+        }
+        else if (outForm == PEM_FORM) {
             if (wolfSSL_PEM_write_bio_X509(out, x509) != WOLFSSL_SUCCESS) {
                 WOLFCLU_LOG(WOLFCLU_E0, "unable to write certificate out");
                 ret = WOLFCLU_FATAL_ERROR;
@@ -543,8 +556,10 @@ int wolfCLU_certSetup(int argc, char** argv)
         }
     }
 
+    wolfSSL_BIO_free(inMem);
     wolfSSL_BIO_free(out);
     wolfSSL_X509_free(x509);
+
     return ret;
 }
 
